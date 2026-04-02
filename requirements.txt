@@ -2,5 +2,5 @@ streamlit
 pandas
 langchain
 langchain-experimental
-langchain-google-genai
+langchain-google-genai>=1.0.3
 openpyxl
