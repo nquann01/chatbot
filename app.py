@@ -37,7 +37,7 @@ dfs = load_excel_files()
 # Khởi tạo "Bộ não" AI
 if dfs:
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0)
-    agent = create_pandas_dataframe_agent(llm, dfs, verbose=True, allow_dangerous_code=True)
+    agent = create_pandas_dataframe_agent(llm, dfs, verbose=True, allow_dangerous_code=True, handle_parsing_errors=True)
 else:
     st.error("Không tìm thấy file dữ liệu nào!")
 
@@ -60,8 +60,10 @@ if prompt := st.chat_input("Ví dụ: Doanh thu cửa hàng Đỗ Quang tháng 1
     with st.chat_message("assistant"):
         with st.spinner("AI đang tính toán số liệu..."):
             try:
-                response = agent.run(prompt)
+                # Dùng .invoke thay cho .run để tương thích với LangChain bản mới
+                result = agent.invoke(prompt)
+                response = result["output"]
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
-                st.error("Xin lỗi, tôi không thể tìm thấy dữ liệu phù hợp hoặc câu hỏi quá phức tạp.")
+                st.error("Xin lỗi, dữ liệu này chưa có hoặc câu hỏi hơi phức tạp. Bạn thử hỏi cách khác nhé!")
