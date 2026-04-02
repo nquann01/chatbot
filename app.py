@@ -36,7 +36,7 @@ dfs = load_excel_files()
 
 # Khởi tạo "Bộ não" AI
 if dfs:
-    llm = ChatGoogleGenerativeAI(model="models/gemini-1.5-flash", google_api_key=api_key, temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0)
     agent = create_pandas_dataframe_agent(llm, dfs, verbose=True, allow_dangerous_code=True)
 else:
     st.error("Không tìm thấy file dữ liệu nào!")
