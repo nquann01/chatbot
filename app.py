@@ -60,10 +60,11 @@ if prompt := st.chat_input("Ví dụ: Doanh thu cửa hàng Đỗ Quang tháng 1
     with st.chat_message("assistant"):
         with st.spinner("AI đang tính toán số liệu..."):
             try:
-                # Dùng .invoke thay cho .run để tương thích với LangChain bản mới
-                result = agent.invoke(prompt)
+                # Cú pháp chuẩn của LangChain bản mới nhất: {"input": prompt}
+                result = agent.invoke({"input": prompt})
                 response = result["output"]
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
-                st.error("Xin lỗi, dữ liệu này chưa có hoặc câu hỏi hơi phức tạp. Bạn thử hỏi cách khác nhé!")
+                # In thẳng nguyên nhân lỗi ra màn hình để bắt bệnh ngay lập tức
+                st.error(f"Hệ thống đang gặp lỗi kỹ thuật. Mã lỗi chi tiết: {e}")
