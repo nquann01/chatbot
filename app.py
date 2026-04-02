@@ -13,19 +13,26 @@ st.title("📊 Chatbot Truy Vấn Dữ Liệu KPI 2025")
 api_key = st.secrets["GEMINI_API_KEY"]
 
 # Hàm tự động đọc tất cả file CSV
+# Hàm tự động đọc tất cả các file Excel (.xlsx) và từng Sheet bên trong
 @st.cache_data
-def load_all_csvs():
-    csv_files = glob.glob("*.csv")
+def load_excel_files():
+    excel_files = glob.glob("*.xlsx")
     dataframes = []
-    for file in csv_files:
+    
+    for file in excel_files:
         try:
-            df = pd.read_csv(file)
-            dataframes.append(df)
+            # sheet_name=None giúp đọc TOÀN BỘ các sheet trong file
+            excel_data = pd.read_excel(file, sheet_name=None) 
+            
+            # Tách từng sheet ra thành từng bảng dữ liệu riêng cho AI đọc
+            for sheet_name, df in excel_data.items():
+                dataframes.append(df)
         except Exception as e:
             pass
+            
     return dataframes
 
-dfs = load_all_csvs()
+dfs = load_excel_files()
 
 # Khởi tạo "Bộ não" AI
 if dfs:
