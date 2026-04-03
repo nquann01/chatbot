@@ -192,7 +192,8 @@ with tab2:
         if len(num_cols) > 0:
             m_cols = st.columns(min(len(num_cols), 4))
             for i, col in enumerate(num_cols[:4]):
-                m_cols[i].metric(col, f"{df_target[col].sum():,.0f}")
+    # Thêm str(col) để đảm bảo tiêu đề luôn là dạng chữ
+    m_cols[i].metric(str(col), f"{df_target[col].sum():,.0f}")
             
             st.divider()
             
