@@ -13,19 +13,27 @@ api_key = st.secrets["GEMINI_API_KEY"]
 
 # --- 2. CẤU HÌNH GOOGLE SHEETS ---
 # SỬA Ở ĐÂY: Dán đường link Google Sheets của bạn vào giữa 2 dấu ngoặc kép:
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit?usp=sharing"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit"
 # ---------------------------------------------
 
-# --- 3. HÀM TẢI DỮ LIỆU TỰ ĐỘNG NHẬN DIỆN SHEET ---
+# --- 3. HÀM TẢI DỮ LIỆU TỰ ĐỘNG NHẬN DIỆN SHEET (FIX LỖI) ---
 @st.cache_data(ttl=600) # Cứ 10 phút tự động lấy dữ liệu mới 1 lần
 def load_gsheets_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     dataframes = []
     
     try:
-        # Tự động quét và lấy TẤT CẢ tên sheet có trong file
         spreadsheet = conn.client.open_by_url(SHEET_URL)
-        all_sheet_names = [sheet.title for sheet in spreadsheet.worksheets()]
+        
+        # Khắc phục triệt để lỗi "Worksheet object is not iterable"
+        # Kiểm tra xem hệ thống trả về hàm hay thuộc tính
+        sheets = spreadsheet.worksheets() if callable(spreadsheet.worksheets) else spreadsheet.worksheets
+        
+        # Nếu hệ thống trả về 1 sheet đơn lẻ thay vì 1 danh sách, ta ép nó thành danh sách
+        if not isinstance(sheets, list):
+            sheets = [sheets]
+            
+        all_sheet_names = [s.title for s in sheets]
         
         # Duyệt qua từng sheet và tải dữ liệu
         for sheet_name in all_sheet_names:
