@@ -7,19 +7,15 @@ from streamlit_gsheets import GSheetsConnection
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# --- 1. CẤU HÌNH GIAO DIỆN NÂNG CẤP ---
-st.set_page_config(page_title="Trợ lý KPI Toàn Năng", page_icon="📈", layout="wide")
-st.title("📈 Trợ lý AI Phân Tích KPI & Vẽ Biểu Đồ")
+# --- 1. CẤU HÌNH GIAO DIỆN ---
+st.set_page_config(page_title="Siêu Trợ Lý KPI AI", page_icon="🚀", layout="wide")
+st.title("🚀 Siêu Trợ Lý Phân Tích KPI & Dữ Liệu Đa Nguồn")
 
 api_key = st.secrets["GEMINI_API_KEY"]
 
-# --- 2. CẤU HÌNH GOOGLE SHEETS (SỬA Ở ĐÂY) ---
-# Dán đường link Google Sheets của bạn:
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit2"
-
-# Ghi chính xác tên các Sheet bạn muốn đọc:
+# --- 2. CẤU HÌNH GOOGLE SHEETS (NHỚ SỬA Ở ĐÂY) ---
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit"
 SHEET_NAMES = ["Cửa hàng 2025", "Cửa hàng 2026", "Dự Án Online 2025", "Dự Án Online 2026", "Các nguồn 2025", "Các nguồn 2026"] 
-# ---------------------------------------------
 
 # --- 3. HÀM TẢI DỮ LIỆU ---
 @st.cache_data(ttl=600)
@@ -29,104 +25,109 @@ def load_gsheets_data():
     for sheet in SHEET_NAMES:
         try:
             df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet)
+            df = df.dropna(how='all').dropna(axis=1, how='all')
             if not df.empty:
-                dataframes.append(df)
+                dataframes.append({"name": sheet, "data": df})
         except Exception as e:
-            st.warning(f"⚠️ Bỏ qua sheet '{sheet}' vì lỗi: {e}")
+            st.warning(f"⚠️ Lỗi sheet '{sheet}': {e}")
     return dataframes
 
-# --- TÍNH NĂNG 1: GIAO DIỆN SIDEBAR (THANH BÊN) ---
+# --- SIDEBAR: CÔNG CỤ BỔ SUNG ---
 with st.sidebar:
-    st.header("⚙️ Bảng Điều Khiển")
+    st.header("🛠️ Công cụ bổ sung")
     
-    # Nút bấm làm mới dữ liệu tức thì không cần chờ 10 phút
-    if st.button("🔄 Làm mới dữ liệu ngay", use_container_width=True):
+    # TÍNH NĂNG 1: TẢI FILE BỔ SUNG
+    st.subheader("📁 Tải file dữ liệu mới")
+    uploaded_file = st.file_uploader("Kết hợp thêm file Excel/CSV", type=["csv", "xlsx"])
+    
+    st.divider()
+    if st.button("🔄 Làm mới dữ liệu Sheets", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
         
     st.divider()
+    # Xuất báo cáo nhanh
+    if "messages" in st.session_state and len(st.session_state.messages) > 0:
+        chat_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+        st.download_button("📥 Tải báo cáo Chat", chat_text, "Bao_Cao.txt", use_container_width=True)
+
+# --- XỬ LÝ DỮ LIỆU TỔNG HỢP ---
+with st.spinner("Đang chuẩn bị dữ liệu..."):
+    # Lấy dữ liệu từ Sheets
+    sheet_data_list = load_gsheets_data()
+    all_dfs_for_ai = [item["data"] for item in sheet_data_list]
     
-    # Khu vực xem trước dữ liệu (Data Preview)
-    st.subheader("👁️ Dữ liệu đang phân tích")
-    dfs = load_gsheets_data()
-    if dfs:
-        for i, df in enumerate(dfs):
-            with st.expander(f"Xem bảng {i+1} ({len(df)} dòng)"):
-                st.dataframe(df.head(5)) # Chỉ hiện 5 dòng đầu cho gọn
-    else:
-        st.warning("Chưa có dữ liệu.")
+    # Nếu có file upload thêm, gộp vào danh sách cho AI đọc
+    if uploaded_file:
+        try:
+            extra_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            all_dfs_for_ai.append(extra_df)
+            st.sidebar.success(f"✅ Đã nhận file: {uploaded_file.name}")
+        except:
+            st.sidebar.error("❌ File tải lên không đúng định dạng.")
 
-# --- 4. KHỞI TẠO AI (BỔ SUNG QUY TẮC VẼ BIỂU ĐỒ) ---
-QUY_TAC = """
-Bạn là Giám đốc Phân tích Dữ liệu.
-1. Trả lời bằng Tiếng Việt, ngắn gọn, chính xác. KHÔNG tự bịa số liệu.
-2. NẾU NGƯỜI DÙNG YÊU CẦU VẼ BIỂU ĐỒ: Bắt buộc import `matplotlib.pyplot as plt`. Sau khi vẽ xong, bạn PHẢI lưu ảnh bằng lệnh `plt.savefig('bieudo.png', bbox_inches='tight')`. Không sử dụng plt.show(). Trả lời người dùng: "Tôi đã vẽ biểu đồ cho bạn ở bên dưới."
-"""
-
-if dfs:
+# --- 4. KHỞI TẠO AI ---
+if all_dfs_for_ai:
     try:
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, temperature=0)
+        # AI sẽ đọc TẤT CẢ các DataFrame bao gồm từ Sheets và file Upload
         agent = create_pandas_dataframe_agent(
-            llm, dfs, verbose=True, allow_dangerous_code=True, handle_parsing_errors=True, prefix=QUY_TAC
+            llm, all_dfs_for_ai, verbose=True, allow_dangerous_code=True, handle_parsing_errors=True,
+            prefix="Bạn là chuyên gia phân tích dữ liệu đa nguồn. Hãy trả lời Tiếng Việt chuyên nghiệp."
         )
     except Exception as e:
-        st.error(f"❌ Lỗi khởi tạo AI: {e}")
+        st.error(f"Lỗi AI: {e}")
 
-# --- 5. TÍNH NĂNG TRÍ NHỚ & KHUNG CHAT ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# --- 5. GIAO DIỆN TAB ---
+tab1, tab2 = st.tabs(["💬 Chatbot Phân Tích", "📊 Dashboard Cố Định"])
 
-# Nút gợi ý câu hỏi nhanh (nằm trên khung chat)
-col1, col2, col3 = st.columns(3)
-quick_prompt = None
-if col1.button("📊 Báo cáo tổng doanh thu"): quick_prompt = "Tổng doanh thu trong bảng là bao nhiêu?"
-if col2.button("📈 Vẽ biểu đồ doanh thu"): quick_prompt = "Hãy vẽ biểu đồ cột thể hiện doanh thu."
-if col3.button("🔍 Cửa hàng nào cao nhất?"): quick_prompt = "Cửa hàng nào có doanh thu cao nhất?"
+with tab1:
+    if "messages" not in st.session_state: st.session_state.messages = []
+    
+    # Hiển thị lịch sử
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
+            if "image" in m: st.image(m["image"])
 
-# Hiển thị lịch sử chat (Bao gồm cả ảnh biểu đồ cũ)
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if "image" in message:
-            st.image(message["image"])
-
-# Nhận câu hỏi từ nút bấm hoặc do người dùng tự gõ
-user_input = st.chat_input("Hỏi tôi phân tích hoặc yêu cầu vẽ biểu đồ...")
-prompt = quick_prompt or user_input
-
-if prompt:
-    st.chat_message("user").markdown(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    with st.chat_message("assistant"):
-        with st.spinner("AI đang phân tích và xử lý..."):
-            try:
-                # CẤP TRÍ NHỚ: Gom 4 tin nhắn gần nhất đưa cho AI để nó hiểu ngữ cảnh
-                history_context = ""
-                if len(st.session_state.messages) > 1:
-                    history_context = "Ngữ cảnh cuộc trò chuyện trước đó:\n"
-                    for msg in st.session_state.messages[-5:-1]:
-                        history_context += f"{msg['role']}: {msg['content']}\n"
-                
-                full_prompt = f"{history_context}\n\nCâu hỏi hiện tại: {prompt}"
-                
-                # AI Xử lý
-                result = agent.invoke({"input": full_prompt}, config={"callbacks": []})
-                response = result["output"]
-                st.markdown(response)
-                
-                msg_data = {"role": "assistant", "content": response}
-                
-                # BẮT ẢNH BIỂU ĐỒ TỪ AI (NẾU CÓ)
-                if os.path.exists("bieudo.png"):
-                    with open("bieudo.png", "rb") as f:
-                        img_data = f.read()
-                        img = Image.open(io.BytesIO(img_data))
+    # Khung nhập liệu
+    if prompt := st.chat_input("Hỏi tôi về dữ liệu Sheets hoặc File vừa tải lên..."):
+        st.chat_message("user").markdown(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Đang suy luận..."):
+                try:
+                    result = agent.invoke({"input": prompt})
+                    response = result["output"]
+                    st.markdown(response)
+                    
+                    msg_data = {"role": "assistant", "content": response}
+                    if os.path.exists("bieudo.png"):
+                        img = Image.open("bieudo.png")
                         st.image(img)
-                        msg_data["image"] = img # Lưu ảnh vào trí nhớ để lần sau load lại
-                    os.remove("bieudo.png") # Xóa file rác
+                        msg_data["image"] = img
+                        os.remove("bieudo.png")
+                    st.session_state.messages.append(msg_data)
+                except Exception as e:
+                    st.error(f"Lỗi: {e}")
 
-                st.session_state.messages.append(msg_data)
-
-            except Exception as e:
-                st.error(f"⚠️ Hệ thống đang gặp lỗi xử lý. Chi tiết: {e}")
+with tab2:
+    st.subheader("📈 Chỉ số quan trọng (Key Metrics)")
+    if sheet_data_list:
+        # Lấy dữ liệu từ sheet đầu tiên để làm Dashboard mẫu
+        main_df = sheet_data_list[0]["data"]
+        num_cols = main_df.select_dtypes(include=['number']).columns
+        
+        if len(num_cols) >= 2:
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"Tổng {num_cols[0]}", f"{main_df[num_cols[0]].sum():,.0f}")
+            c2.metric(f"Trung bình {num_cols[1]}", f"{main_df[num_cols[1]].mean():,.2f}")
+            c3.metric("Số dòng dữ liệu", len(main_df))
+            
+            st.divider()
+            st.markdown(f"**Biểu đồ xu hướng: {num_cols[0]}**")
+            st.line_chart(main_df[num_cols[0]])
+        else:
+            st.write("Cần ít nhất 2 cột số để hiển thị Dashboard đẹp hơn.")
+            st.dataframe(main_df.head(10))
