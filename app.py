@@ -6,52 +6,38 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 # --- 1. CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title="Trợ lý KPI AI", page_icon="📊", layout="wide")
-st.title("📊 Chatbot Truy Vấn Dữ Liệu KPI Tự Động")
+st.title("📊 Chatbot Truy Vấn Dữ Liệu KPI")
 
 # Lấy khóa AI từ phần Secrets
 api_key = st.secrets["GEMINI_API_KEY"]
 
-# --- 2. CẤU HÌNH GOOGLE SHEETS ---
-# SỬA Ở ĐÂY: Dán đường link Google Sheets của bạn vào giữa 2 dấu ngoặc kép:
+# --- 2. CẤU HÌNH GOOGLE SHEETS (SỬA Ở ĐÂY) ---
+# 1. Dán đường link Google Sheets của bạn vào đây:
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit"
+
+# 2. Ghi chính xác tên các Sheet bạn muốn đọc (Ví dụ: "Tháng 1", "Tháng 2"):
+SHEET_NAMES = ["Cửa hàng 2025", "Cửa hàng 2026", "Dự Án Online 2025", "Dự Án Online 2026", "Các nguồn 2025", "Các nguồn 2026"] 
 # ---------------------------------------------
 
-# --- 3. HÀM TẢI DỮ LIỆU TỰ ĐỘNG NHẬN DIỆN SHEET (FIX LỖI) ---
+# --- 3. HÀM TẢI DỮ LIỆU TỪ GOOGLE SHEETS ---
 @st.cache_data(ttl=600) # Cứ 10 phút tự động lấy dữ liệu mới 1 lần
 def load_gsheets_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     dataframes = []
     
-    try:
-        spreadsheet = conn.client.open_by_url(SHEET_URL)
-        
-        # Khắc phục triệt để lỗi "Worksheet object is not iterable"
-        # Kiểm tra xem hệ thống trả về hàm hay thuộc tính
-        sheets = spreadsheet.worksheets() if callable(spreadsheet.worksheets) else spreadsheet.worksheets
-        
-        # Nếu hệ thống trả về 1 sheet đơn lẻ thay vì 1 danh sách, ta ép nó thành danh sách
-        if not isinstance(sheets, list):
-            sheets = [sheets]
+    for sheet in SHEET_NAMES:
+        try:
+            # Đọc trực tiếp từng sheet được chỉ định
+            df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet)
+            if not df.empty:
+                dataframes.append(df)
+        except Exception as e:
+            st.warning(f"⚠️ Bỏ qua sheet '{sheet}' vì lỗi: {e}")
             
-        all_sheet_names = [s.title for s in sheets]
-        
-        # Duyệt qua từng sheet và tải dữ liệu
-        for sheet_name in all_sheet_names:
-            try:
-                df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name)
-                # Chỉ lấy bảng có dữ liệu, bỏ qua các sheet trống để AI không bị nhiễu
-                if not df.empty:
-                    dataframes.append(df)
-            except Exception as e:
-                pass 
-                
-    except Exception as main_error:
-        st.error(f"❌ Lỗi kết nối Google Sheets: {main_error}")
-        
     return dataframes
 
 # Bắt đầu tải dữ liệu vào App
-with st.spinner("Đang tự động quét và tải dữ liệu từ Google Sheets..."):
+with st.spinner("Đang tải dữ liệu từ Google Sheets..."):
     dfs = load_gsheets_data()
 
 # --- 4. KHỞI TẠO BỘ NÃO AI ---
@@ -71,7 +57,6 @@ if dfs:
         # Dùng model Gemini 2.5 Flash cực kỳ thông minh và nhanh
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, temperature=0)
         
-        # Tạo Agent để AI đọc DataFrame
         agent = create_pandas_dataframe_agent(
             llm, 
             dfs, 
@@ -83,31 +68,26 @@ if dfs:
     except Exception as e:
          st.error(f"❌ Lỗi khởi tạo AI: {e}")
 else:
-    st.error("Chưa có dữ liệu nào được tải lên! Vui lòng kiểm tra lại Link Google Sheets hoặc Quyền truy cập của Robot.")
+    st.error("Chưa có dữ liệu nào được tải lên! Vui lòng kiểm tra lại Link, Tên Sheet hoặc Quyền truy cập.")
 
 # --- 5. XÂY DỰNG KHUNG CHAT ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Hiển thị lại lịch sử chat cũ
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Xử lý khi người dùng gõ câu hỏi mới
 if prompt := st.chat_input("Ví dụ: Doanh thu tháng 1 là bao nhiêu?"):
-    # Hiện câu hỏi của user
     st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # AI tính toán và trả lời
     with st.chat_message("assistant"):
         with st.spinner("AI đang phân tích số liệu..."):
             try:
-                # Dùng .invoke() và tắt callbacks để tránh lỗi Streamlit
                 result = agent.invoke({"input": prompt}, config={"callbacks": []})
                 response = result["output"]
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
-                st.error(f"⚠️ Hệ thống đang gặp lỗi xử lý dữ liệu. Chi tiết: {e}")
+                st.error(f"⚠️ Hệ thống đang gặp lỗi xử lý. Chi tiết: {e}")
