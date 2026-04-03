@@ -6,3 +6,5 @@ langchain-google-genai
 openpyxl
 tabulate
 st-gsheets-connection
+matplotlib
+Pillow
