@@ -9,143 +9,128 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # =========================================================
-# 1. CẤU HÌNH GIAO DIỆN CHUYÊN NGHIỆP (UX/UI)
+# 1. CẤU HÌNH GIAO DIỆN CHUYÊN NGHIỆP (CSS)
 # =========================================================
-st.set_page_config(page_title="Hệ Thống Phân Tích KPI AI", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Hệ Thống KPI AI v4.0", page_icon="💎", layout="wide")
 
 st.markdown("""
     <style>
-    .main { background-color: #F1F5F9; }
+    .main { background-color: #F8FAFC; }
     [data-testid="stSidebar"] { background-color: #0F172A !important; }
     [data-testid="stSidebar"] * { color: #E2E8F0 !important; }
-    .stMetric { 
+    div[data-testid="stMetric"] { 
         background-color: white; 
         padding: 20px; 
-        border-radius: 15px; 
+        border-radius: 12px; 
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
         border-left: 5px solid #3B82F6;
     }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #E2E8F0;
-        border-radius: 10px 10px 0 0;
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] { background-color: #3B82F6 !important; color: white !important; }
+    .main-header { font-size: 28px; font-weight: 800; color: #1E293B; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. HÀM XỬ LÝ DỮ LIỆU ĐA TẦNG (FIX LỖI ĐỌC SAI)
+# 2. HÀM XỬ LÝ DỮ LIỆU THÔNG MINH (FIX LỖI)
 # =========================================================
-def split_dataframe_by_empty_rows(df):
-    """Tự động tách một Sheet thành nhiều bảng nhỏ nếu có dòng trống giữa chúng"""
-    # Tìm các dòng không hoàn toàn trống
+def split_sheet_to_blocks(df):
+    """Tự động tách các khối dữ liệu nếu cách nhau bởi dòng trống"""
     mask = df.notnull().any(axis=1)
-    # Gom nhóm các dòng liên tục có dữ liệu
     groups = (mask != mask.shift()).cumsum()
-    dfs = []
+    blocks = []
     for _, g in df[mask].groupby(groups):
         if len(g) > 1:
-            # Lấy dòng đầu của nhóm làm Header
-            new_df = g.copy()
-            new_df.columns = new_df.iloc[0]
-            new_df = new_df[1:].reset_index(drop=True)
-            # Xóa các cột hoàn toàn trống trong bảng nhỏ
-            new_df = new_df.dropna(axis=1, how='all')
-            dfs.append(new_df)
-    return dfs
+            block = g.copy()
+            # Ép kiểu tiêu đề về String để tránh lỗi TypeError: label must be string
+            block.columns = [str(c) for c in block.iloc[0]]
+            block = block[1:].reset_index(drop=True)
+            block = block.dropna(axis=1, how='all')
+            blocks.append(block)
+    return blocks
 
 @st.cache_data(ttl=600)
-def load_full_data(sheet_url, sheet_names):
+def load_data_from_gsheets(url, sheets):
     conn = st.connection("gsheets", type=GSheetsConnection)
-    all_data_segments = []
-    for name in sheet_names:
+    all_segments = []
+    for name in sheets:
         try:
-            raw_df = conn.read(spreadsheet=sheet_url, worksheet=name)
-            # Tách các khối dữ liệu trong cùng 1 sheet
-            segments = split_dataframe_by_empty_rows(raw_df)
-            for s in segments:
-                all_data_segments.append({"sheet": name, "df": s})
+            # Fix lỗi 'open_by_url' bằng cách dùng read mặc định của connection
+            raw = conn.read(spreadsheet=url, worksheet=name)
+            blocks = split_sheet_to_blocks(raw)
+            for b in blocks:
+                all_segments.append({"source": name, "df": b})
         except Exception as e:
             st.sidebar.error(f"Lỗi đọc Sheet {name}: {e}")
-    return all_data_segments
+    return all_segments
 
-# --- CẤU HÌNH NGUỒN (SỬA TẠI ĐÂY) ---
+# --- CẤU HÌNH (BẮT BUỘC SỬA TẠI ĐÂY) ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1Gpemfz8h1trFZz28IkASZ5osMQnkgjy6YX3BVUPmTI0/edit"
-# Liệt kê tất cả sheet bạn muốn App quét qua:
-SHEET_LIST = ["Cửa hàng 2025", "Cửa hàng 2026", "Dự Án Online 2025", "Dự Án Online 2026", "Các nguồn 2025", "Các nguồn 2026"] 
+SHEET_LIST = ["Cửa hàng 2025", "Cửa hàng 2026", "Dự Án Online 2025", "Dự Án Online 2026", "Các nguồn 2025", "Các nguồn 2026"] # Ghi đúng tên các sheet của bạn
+# ---------------------------------------
 
-with st.spinner("💎 Hệ thống đang phân tích cấu trúc dữ liệu..."):
-    data_bundles = load_full_data(SHEET_URL, SHEET_LIST)
+with st.spinner("💎 Đang đồng bộ hóa dữ liệu thông minh..."):
+    data_bundles = load_data_from_gsheets(SHEET_URL, SHEET_LIST)
     list_of_dfs = [item["df"] for item in data_bundles]
 
 # =========================================================
-# 3. SIDEBAR - ĐIỀU KHIỂN & HYBRID DATA
+# 3. SIDEBAR - ĐIỀU KHIỂN
 # =========================================================
 with st.sidebar:
-    st.markdown("## 💎 Intelligence Hub")
-    st.caption("Quản trị dữ liệu đa nguồn v3.0")
+    st.markdown("## 💎 AI Intelligence")
+    st.caption("Bản quyền hệ thống KPI v4.0")
     
     if st.button("🔄 Làm mới dữ liệu Cloud", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
     
     st.divider()
-    st.subheader("📁 Nạp thêm dữ liệu")
-    extra_file = st.file_uploader("Upload file Excel/CSV tạm thời", type=["csv", "xlsx"])
-    if extra_file:
+    st.subheader("📁 Dữ liệu bổ sung")
+    extra = st.file_uploader("Kéo thả file Excel/CSV", type=["csv", "xlsx"])
+    if extra:
         try:
-            edf = pd.read_csv(extra_file) if extra_file.name.endswith('.csv') else pd.read_excel(extra_file)
-            list_of_dfs.append(edf)
-            st.success("✅ Đã gộp file mới vào bộ não AI!")
+            e_df = pd.read_csv(extra) if extra.name.endswith('.csv') else pd.read_excel(extra)
+            e_df.columns = [str(c) for c in e_df.columns]
+            list_of_dfs.append(e_df)
+            st.success("✅ Đã tích hợp file.")
         except: st.error("Lỗi định dạng file.")
 
-    st.divider()
-    if "messages" in st.session_state and st.session_state.messages:
-        full_log = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages])
-        st.download_button("📥 Xuất báo cáo Chat", full_log, "Report_KPI.txt", use_container_width=True)
-
 # =========================================================
-# 4. KHỞI TẠO BỘ NÃO AI (GEMINI)
+# 4. KHỞI TẠO AI (GEMINI AGENT)
 # =========================================================
 if list_of_dfs:
     try:
-        # Sử dụng model 1.5-flash để cân bằng giữa tốc độ và độ thông minh
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=API_KEY, temperature=0)
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=API_KEY, temperature=0)
         
-        SYTEM_PROMPT = """
-        Bạn là Giám đốc Phân tích Dữ liệu chuyên nghiệp. 
-        - Bạn được cung cấp DANH SÁCH NHIỀU BẢNG dữ liệu từ Google Sheets.
-        - Một sheet có thể chứa nhiều bảng khác nhau (Doanh thu, Chi phí, KPI...). Hãy kiểm tra kỹ từng bảng.
-        - Trả lời bằng Tiếng Việt, lịch sự. Định dạng số tiền kiểu 1.000.000 VNĐ.
-        - Khi vẽ biểu đồ: dùng matplotlib, lưu bằng plt.savefig('bieudo.png').
-        - Nếu dữ liệu không rõ ràng, hãy hỏi lại người dùng thay vì đoán sai.
+        RULES = """
+        Bạn là Chuyên gia Phân tích Dữ liệu. Trả lời Tiếng Việt.
+        - Dữ liệu có nhiều bảng (Doanh thu, Chi phí...). Hãy quét hết các bảng để tìm số liệu.
+        - Vẽ biểu đồ bằng matplotlib, lưu: plt.savefig('bieudo.png').
+        - Định dạng tiền tệ VNĐ rõ ràng.
         """
         
         agent = create_pandas_dataframe_agent(
             llm, list_of_dfs, verbose=True, allow_dangerous_code=True, 
-            handle_parsing_errors=True, prefix=SYTEM_PROMPT
+            handle_parsing_errors=True, prefix=RULES
         )
     except Exception as e:
         st.error(f"Lỗi AI: {e}")
 
 # =========================================================
-# 5. GIAO DIỆN TABS CHÍNH
+# 5. GIAO DIỆN CHÍNH (TABS)
 # =========================================================
-tab1, tab2 = st.tabs(["💬 Trợ Lý Chiến Lược", "📊 Trung Tâm Điều Hành"])
+st.markdown("<div class='main-header'>📊 Hệ Thống Quản Trị Dữ Liệu</div>", unsafe_allow_html=True)
+tab1, tab2 = st.tabs(["💬 Trợ Lý Phân Tích", "📈 Dashboard Snapshot"])
 
-# --- TAB 1: AI CHATBOT ---
+# --- TAB 1: CHATBOT AI ---
 with tab1:
     if "messages" not in st.session_state: st.session_state.messages = []
     
-    st.markdown("#### Bạn cần phân tích chỉ số nào?")
-    c1, c2, c3 = st.columns(3)
+    # Gợi ý nhanh
+    col_a, col_b, col_c = st.columns(3)
     q = None
-    if c1.button("📊 Tổng hợp Doanh thu"): q = "Tính tổng doanh thu và liệt kê theo từng hạng mục chính."
-    if c2.button("📉 Tìm điểm bất thường"): q = "Dữ liệu có điểm nào bất thường hoặc sụt giảm nghiêm trọng không?"
-    if c3.button("🎨 Vẽ biểu đồ xu hướng"): q = "Vẽ biểu đồ đường thể hiện biến động dữ liệu quan trọng nhất."
+    if col_a.button("📊 Tổng doanh thu", use_container_width=True): q = "Tổng doanh thu là bao nhiêu?"
+    if col_b.button("🎨 Vẽ biểu đồ", use_container_width=True): q = "Hãy vẽ biểu đồ cột so sánh các số liệu."
+    if col_c.button("🔥 Điểm bất thường", use_container_width=True): q = "Có hạng mục nào sụt giảm không?"
 
     st.divider()
     for m in st.session_state.messages:
@@ -153,7 +138,7 @@ with tab1:
             st.markdown(m["content"])
             if "image" in m: st.image(m["image"])
 
-    u_input = st.chat_input("Hỏi AI về bất kỳ dữ liệu nào trong Sheets...")
+    u_input = st.chat_input("Hỏi AI điều gì đó...")
     prompt = q or u_input
 
     if prompt:
@@ -161,7 +146,7 @@ with tab1:
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         with st.chat_message("assistant"):
-            with st.spinner("AI đang truy vấn đa bảng..."):
+            with st.spinner("AI đang tính toán..."):
                 try:
                     res = agent.invoke({"input": prompt})
                     ans = res["output"]
@@ -174,16 +159,15 @@ with tab1:
                         os.remove("bieudo.png")
                     st.session_state.messages.append(msg)
                 except Exception as e:
-                    st.error("Gặp lỗi hoặc hết hạn mức. Vui lòng thử lại sau 1 phút.")
+                    st.error("AI bận, thử lại sau 30 giây!")
 
-# --- TAB 2: DASHBOARD TỔNG LỰC ---
+# --- TAB 2: DASHBOARD SNAPSHOT ---
 with tab2:
     if not data_bundles:
-        st.info("Chưa có dữ liệu.")
+        st.info("Chưa có dữ liệu để hiển thị.")
     else:
-        # Chọn bảng để xem chi tiết
-        names = [f"Bảng {i+1} (từ {item['sheet']})" for i, item in enumerate(data_bundles)]
-        choice = st.selectbox("🎯 Chọn khối dữ liệu muốn xem nhanh:", names)
+        names = [f"Khối {i+1} (Sheet: {item['source']})" for i, item in enumerate(data_bundles)]
+        choice = st.selectbox("🎯 Chọn dữ liệu cần xem nhanh:", names)
         idx = names.index(choice)
         df_target = data_bundles[idx]["df"]
 
@@ -192,18 +176,16 @@ with tab2:
         if len(num_cols) > 0:
             m_cols = st.columns(min(len(num_cols), 4))
             for i, col in enumerate(num_cols[:4]):
-    # Thêm str(col) để đảm bảo tiêu đề luôn là dạng chữ
-    m_cols[i].metric(str(col), f"{df_target[col].sum():,.0f}")
+                # Ép kiểu str(col) để fix lỗi TypeError của Streamlit
+                m_cols[i].metric(str(col), f"{df_target[col].sum():,.0f}")
             
             st.divider()
-            
-            # Biểu đồ tự động
-            g1, g2 = st.columns([2, 1])
-            with g1:
-                st.markdown(f"**📈 Biểu đồ đường: {num_cols[0]}**")
+            c_left, c_right = st.columns([2, 1])
+            with c_left:
+                st.markdown(f"**📈 Xu hướng: {num_cols[0]}**")
                 st.line_chart(df_target[num_cols[0]])
-            with g2:
-                st.markdown("**📋 Dữ liệu thô**")
+            with c_right:
+                st.markdown("**📋 Xem nhanh dữ liệu**")
                 st.dataframe(df_target.head(10), hide_index=True)
         else:
             st.dataframe(df_target)
