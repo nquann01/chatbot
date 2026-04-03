@@ -91,7 +91,8 @@ for message in st.session_state.messages:
             st.image(message["image"])
 
 # Nhận câu hỏi từ nút bấm hoặc do người dùng tự gõ
-prompt = quick_prompt or st.chat_input("Hỏi tôi phân tích hoặc yêu cầu vẽ biểu đồ...")
+user_input = st.chat_input("Hỏi tôi phân tích hoặc yêu cầu vẽ biểu đồ...")
+prompt = quick_prompt or user_input
 
 if prompt:
     st.chat_message("user").markdown(prompt)
